@@ -1,44 +1,100 @@
-pub struct Input {
-    items: Vec<u32>,  // Dynamically sized vector instead of fixed-length array
+const N: usize = 1000;
+
+unsafe fn radix_sort_u17(arr: &mut [u32; N]) {
+    let mut cnt_lo: [u16; 256] = [0; 256];
+    let mut cnt_hi: [u16; 512] = [0; 512];
+
+    for x in arr.iter() {
+        *cnt_lo.get_unchecked_mut((*x & 255) as usize) += 1;
+        *cnt_hi.get_unchecked_mut((*x >> 8) as usize) += 1;
+    }
+
+    for i in 0..255 { cnt_lo[i + 1] += cnt_lo[i]; }
+    for i in 0..511 { cnt_hi[i + 1] += cnt_hi[i]; }
+
+    let mut buf = [0; N];
+
+    for x in arr.iter().rev() {
+        let ptr = cnt_lo.get_unchecked_mut((*x & 255) as usize);
+        *ptr -= 1;
+        *buf.get_unchecked_mut(*ptr as usize) = *x;
+    }
+
+    for x in buf.iter().rev() {
+        let ptr = cnt_hi.get_unchecked_mut((*x >> 8) as usize);
+        *ptr -= 1;
+        *arr.get_unchecked_mut(*ptr as usize) = *x;
+    }
 }
 
-#[aoc_runner_derive::aoc_generator(day1)]
-pub fn input_generator(input: &[u8]) -> Input {
-    let mut result = Input { items: Vec::new() };
-    let mut input = input;
+fn parse_5b(s: &[u8]) -> u32 {
+    unsafe {
+        (*s.get_unchecked(0) as u32) * 10000 +
+        (*s.get_unchecked(1) as u32) * 1000 +
+        (*s.get_unchecked(2) as u32) * 100 +
+        (*s.get_unchecked(3) as u32) * 10 +
+        (*s.get_unchecked(4) as u32) - 533328
+    }
+}
 
-    while !input.is_empty() {
-        if let Some(pos) = input.iter().position(|&c| c == b'\n') {
-            let line = &input[..pos];
-            let item = crate::utils::parse_chars_to_u32(line);
-            result.items.push(item);
-            input = &input[pos + 1..]; // Skip past the newline character
-        } else {
-            break; // Handle any remaining input or exit if unexpected format occurs
+#[aoc(day1, part1)]
+pub fn part1(input: &str) -> u32 {
+    let mut left = [0; N];
+    let mut right = [0; N];
+
+    let s = input.as_bytes();
+    for i in 0..N {
+        left[i] = parse_5b(&s[i*14..]);
+        right[i] = parse_5b(&s[i*14+8..]);
+    }
+
+    unsafe {
+        radix_sort_u17(&mut left);
+        radix_sort_u17(&mut right);
+    }
+
+    left.iter().zip(&right)
+        .map(|(a, &b)| a.abs_diff(b))
+        .sum()
+}
+
+#[aoc(day1, part2)]
+pub fn part2(input: &str) -> u32 {
+    let mut assoc = [0; 2048];
+
+    let s = input.as_bytes();
+    for i in 0..N {
+        let right = parse_5b(&s[i*14+8..]);
+        let mut h = right & 2047;
+        loop {
+            let entry = &mut assoc[h as usize];
+            if *entry == 0 {
+                *entry = right | 1 << 20;
+                break;
+            }
+            if (*entry & 0xfffff) == right {
+                *entry += 1 << 20;
+                break;
+            }
+            h = (h + 1) & 2047;
         }
     }
 
-    result
-}
+    let mut answer = 0;
 
-#[aoc_runner_derive::aoc(day1, part1, Sort)]
-pub fn solve_part1(input: &Input) -> u32 {
-    let mut items = input.items.clone();
-    items.sort_unstable();
-
-    items.into_iter()
-        .map(|item| item * 2)  // Example operation: doubling each value
-        .sum()
-}
-
-#[aoc_runner_derive::aoc(day1, part2)]
-pub fn solve_part2(input: &Input) -> u32 {
-    let mut map = std::collections::HashMap::new();
-    for &item in &input.items {
-        *map.entry(item).or_insert(0) += 1;
+    for i in 0..N {
+        let left = parse_5b(&s[i*14..]);
+        let mut h = left & 2047;
+        loop {
+            let entry = assoc[h as usize];
+            if entry == 0 {
+                break;
+            }
+            if (entry & 0xfffff) == left {
+                answer += left * (entry >> 20);
+            }
+            h = (h + 1) & 2047;
+        }
     }
-
-    input.items.iter()
-        .map(|&item| item * map.get(&item).unwrap_or(&0))
-        .sum()
+    answer
 }
